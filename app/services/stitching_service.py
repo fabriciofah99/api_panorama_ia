@@ -103,7 +103,6 @@ def generate_panorama(image_paths, output_folder):
 
     # Etapa 2: Stitching inicial
     stitcher = cv2.Stitcher_create(cv2.Stitcher_SCANS)
-    stitcher.setWaveCorrection(True)
     status, panorama = stitcher.stitch(aligned_images)
     if status != cv2.Stitcher_OK:
         raise Exception("Falha ao gerar panorama inicial.")
