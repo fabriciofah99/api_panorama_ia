@@ -17,35 +17,6 @@
             "jinja": true,
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal"
-        },
-        {
-            "name": "LamaCleaner",
-            "type": "python",
-            "request": "launch",
-            "module": "lama_cleaner",
-            "cwd": "${workspaceFolder}/lama-cleaner-env/lama-cleaner",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/lama-cleaner-env/Scripts", // Força uso da venv
-                "PATH": "${workspaceFolder}/lama-cleaner-env/Scripts;${env:PATH}"
-            },
-            "args": [
-                "--model",
-                "lama",
-                "--port",
-                "8081",
-                "--device",
-                "cpu"
-            ],
-            "console": "integratedTerminal"
-        }
-    ],
-    "compounds": [
-        {
-            "name": "Start API + Lama",
-            "configurations": [
-                "FastAPI Debug",
-                "LamaCleaner"
-            ]
         }
     ]
 }
