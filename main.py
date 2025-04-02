@@ -1,10 +1,12 @@
 # main.py
+import cv2
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from typing import List
 import os
 import shutil
 from fastapi.responses import FileResponse
-from app.services.stitching_service import generate_panorama, extract_images
+import numpy as np
+from app.services.stitching_service import call_lama_cleaner, generate_panorama, extract_images
 
 app = FastAPI(title="API de Montagem de Imagem 360° com OpenCV",
               description="Recebe imagens e gera uma imagem panorâmica 360° com OpenCV puro",

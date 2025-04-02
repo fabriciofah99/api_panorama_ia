@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install --upgrade pip
 RUN pip3 install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 RUN pip3 install xformers==0.0.22.post4 --index-url https://download.pytorch.org/whl/cu118
+RUN pip3 install numpy==1.23.5
 
 ARG version 
 
