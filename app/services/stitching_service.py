@@ -123,6 +123,17 @@ def generate_panorama(image_paths, output_folder):
     # Etapa 6: Remoção de bordas pretas
     final_panorama = crop_black_borders(final_panorama)
 
+    # Etapa 7: Salva imagem final
     resultado_path = os.path.join(output_folder, "panorama.jpg")
     cv2.imwrite(resultado_path, final_panorama)
+    
+    # Etapa 8: Limpeza dos arquivos temporários
+    for f in os.listdir("temp_images"):
+        try:
+            file_path = os.path.join("temp_images", f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Erro ao remover arquivo temporário {f}: {str(e)}")
+    
     return resultado_path
