@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: panorama-ia
+    ports:
+      - "8080:8080"
+    depends_on:
+      - lama
+    networks:
+      - panorama-net
+
+  lama:
+    build:
+      context: ./lama-cleaner-env/lama-cleaner
+      dockerfile: docker/CPUDockerfile
+      args:
+        version: 0.27.2
+    container_name: lama-runner
+    command: lama-cleaner --host 0.0.0.0 --port 8081 --model lama --device cpu
+    ports:
+      - "8081:8081"
+    networks:
+      - panorama-net
+
+networks:
+  panorama-net:
