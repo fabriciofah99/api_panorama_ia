@@ -15,7 +15,7 @@ services:
 
   lama:
     build:
-      context: ./lama-cleaner-env/lama-cleaner
+      context: ./lama-cleaner
       dockerfile: docker/CPUDockerfile
       args:
         version: 0.27.2

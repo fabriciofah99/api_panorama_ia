@@ -1,0 +1,21 @@
+FROM python:3.10.11-slim-buster
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    libsm6 libxext6 ffmpeg libfontconfig1 libxrender1 libgl1-mesa-glx \
+    curl gcc build-essential
+
+RUN pip install --upgrade pip && \
+    pip install numpy==1.23.5 && \
+    pip install torch==1.13.1 torchvision==0.14.1 --extra-index-url https://download.pytorch.org/whl/cpu && \
+    pip install huggingface_hub==0.23.0
+
+ARG version
+RUN pip install lama-cleaner==$version
+
+# ENV LD_PRELOAD pode ser removido, pois causava erro
+# ENV LD_PRELOAD=/usr/local/lib/python3.10/site-packages/skimage/_shared/../../scikit_image.libs/libgomp-d22c30c5.so.1.0.0
+
+EXPOSE 8081
+
+CMD ["lama-cleaner", "--model", "lama", "--device", "cpu", "--port", "8081"]
