@@ -42,9 +42,8 @@ def generate_panorama(image_paths, output_folder):
         raise Exception("Mínimo de duas imagens necessárias.")
 
     canvas = montar_canvas(images)
-    prompt = gerar_prompt_blip(canvas)
 
-    resultado_np = gerar_panorama_com_controlnet(canvas, prompt)
+    resultado_np = gerar_panorama_com_controlnet(canvas, "bedroom with bed, wardrobe, computer and window")
 
     resultado_path = os.path.join(output_folder, "panorama_controlnet.jpg")
     cv2.imwrite(resultado_path, resultado_np)

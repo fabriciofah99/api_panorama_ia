@@ -1,4 +1,4 @@
-from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
+from diffusers import StableDiffusionXLControlNetPipeline, ControlNetModel
 import torch
 import numpy as np
 import cv2
@@ -8,29 +8,33 @@ def gerar_panorama_com_controlnet(image_np, prompt):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     controlnet_tile = ControlNetModel.from_pretrained(
-        "lllyasviel/controlnet-tile-sdxl-1.0",
+        "xinsir/controlnet-tile-sdxl-1.0",
         torch_dtype=torch.float16
     ).to(device)
 
     controlnet_depth = ControlNetModel.from_pretrained(
-        "lllyasviel/controlnet-depth-sdxl-1.0",
+        "diffusers/controlnet-depth-sdxl-1.0",
         torch_dtype=torch.float16
     ).to(device)
 
-    pipe = StableDiffusionControlNetPipeline.from_pretrained(
+    pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
         controlnet=[controlnet_tile, controlnet_depth],
-        torch_dtype=torch.float16
+        torch_dtype=torch.float16,
+        variant="fp16"
     ).to(device)
 
     pipe.enable_xformers_memory_efficient_attention()
+    pipe.set_progress_bar_config(disable=True)
 
-    image = Image.fromarray(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)).resize((1024, 512))
+    # Prepara imagem para os dois ControlNet
+    image = Image.fromarray(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)).resize((1024, 1024))
 
+    # Chamada
     result = pipe(
         prompt=prompt,
         negative_prompt="distortion, bad stitching, duplicate objects, blurry",
-        image=[image, image],
+        image=[image, image],  # Tile + Depth
         num_inference_steps=30,
         guidance_scale=7.5,
     ).images[0]
