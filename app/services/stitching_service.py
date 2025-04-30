@@ -2,21 +2,35 @@
 import zipfile
 import os
 import cv2
-import numpy as np
-import requests
-from app.utils.image_processing import enhance_image
-from app.utils.superglue_model import match_images
+from PIL import Image
+from pillow_heif import register_heif_opener
+import zipfile
+
+register_heif_opener()
+cv2.ocl.setUseOpenCL(False)     # Desativa uso de OpenCL (GPU)
+cv2.setUseOptimized(True)       # Ativa otimizações padrão
+
+MAX_WIDTH = 1920  # largura máxima para redimensionamento
+MAX_HEIGHT = 1080
 
 def extract_images(zip_path, extract_folder):
     """Extrai imagens de um ZIP e ordena numericamente"""
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_folder)
+    return sorted([
+        os.path.join(extract_folder, f)
+        for f in os.listdir(extract_folder)
+        if f.lower().endswith(('jpg', 'jpeg', 'png', 'heic'))
+    ])
 
-    image_files = [os.path.join(extract_folder, f)
-                   for f in os.listdir(extract_folder)
-                   if f.endswith(('jpg', 'jpeg', 'png'))]
-
-    return sorted(image_files, key=lambda x: int(''.join(filter(str.isdigit, os.path.basename(x)))))
+def redimensionar_imagem(imagem, max_largura, max_altura):
+    altura, largura = imagem.shape[:2]
+    if largura > max_largura or altura > max_altura:
+        fator = min(max_largura / largura, max_altura / altura)
+        nova_largura = int(largura * fator)
+        nova_altura = int(altura * fator)
+        return cv2.resize(imagem, (nova_largura, nova_altura), interpolation=cv2.INTER_AREA)
+    return imagem
 
 def call_lama_cleaner(image_np):
     """
@@ -92,48 +106,43 @@ def crop_black_borders(img):
     return img
 
 def generate_panorama(image_paths, output_folder):
-    """Gera panorama 360 com alinhamento, IA e preenchimento"""
-    images = [cv2.imread(img) for img in image_paths]
+    pasta_convertidos = os.path.join(output_folder, 'convertidos')
+    os.makedirs(pasta_convertidos, exist_ok=True)
+    caminhos_imagens = []
 
-    # Etapa 1: Alinhamento com ORB + Homografia
-    aligned_images = [images[0]]
-    for i in range(1, len(images)):
-        aligned = match_images(aligned_images[-1], images[i])
-        aligned_images.append(aligned)
+    for caminho_arquivo in sorted(image_paths):
+        nome_arquivo = os.path.basename(caminho_arquivo)
+        nome_base, extensao = os.path.splitext(nome_arquivo)
+        extensao = extensao.lower()
 
-    # Etapa 2: Stitching inicial
-    stitcher = cv2.Stitcher_create(cv2.Stitcher_SCANS)
-    status, panorama = stitcher.stitch(aligned_images)
-    if status != cv2.Stitcher_OK:
-        raise Exception("Falha ao gerar panorama inicial.")
+        if extensao == '.heic':
+            try:
+                imagem = Image.open(caminho_arquivo)
+                novo_caminho = os.path.join(pasta_convertidos, f"{nome_base}.jpg")
+                imagem.save(novo_caminho, "JPEG")
+                caminhos_imagens.append(novo_caminho)
+            except Exception as e:
+                print(f"Erro ao converter {nome_arquivo}: {e}")
+        elif extensao in ['.jpg', '.jpeg', '.png']:
+            caminhos_imagens.append(caminho_arquivo)
 
-    # Etapa 3: Melhorias visuais com IA
-    panorama = enhance_image(panorama)
+    imagens = []
+    for caminho in caminhos_imagens:
+        if os.path.exists(caminho):
+            img = cv2.imread(caminho)
+            if img is not None:
+                img = redimensionar_imagem(img, MAX_WIDTH, MAX_HEIGHT)
+                imagens.append(img)
 
-    # Etapa 4: Preenchimento com lama-cleaner (IA generativa)
-    panorama = call_lama_cleaner(panorama)
+    if len(imagens) < 2:
+        raise Exception("Imagens insuficientes para criar panorama.")
 
-    # Etapa 5: Stitching final com panorama + originais
-    final_images = [panorama] + images
-    stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
-    status, final_panorama = stitcher.stitch(final_images)
-    if status != cv2.Stitcher_OK:
-        raise Exception("Falha ao gerar panorama final.")
+    stitcher = cv2.Stitcher_create()
+    status, panorama = stitcher.stitch(imagens)
 
-    # Etapa 6: Remoção de bordas pretas
-    final_panorama = crop_black_borders(final_panorama)
-
-    # Etapa 7: Salva imagem final
-    resultado_path = os.path.join(output_folder, "panorama.jpg")
-    cv2.imwrite(resultado_path, final_panorama)
-    
-    # Etapa 8: Limpeza dos arquivos temporários
-    for f in os.listdir("temp_images"):
-        try:
-            file_path = os.path.join("temp_images", f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-        except Exception as e:
-            print(f"Erro ao remover arquivo temporário {f}: {str(e)}")
-    
-    return resultado_path
+    if status == cv2.Stitcher_OK:
+        resultado_path = os.path.join(output_folder, "panorama_resultado.jpg")
+        cv2.imwrite(resultado_path, panorama, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        return resultado_path
+    else:
+        raise Exception(f"Erro ao criar panorama. Código: {status}")
