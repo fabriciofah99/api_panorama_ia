@@ -102,7 +102,7 @@ def is_inside_docker():
 
 def get_lama_url():
     if is_inside_docker():
-        return "http://lama:8081/inpaint"  # dentro do Docker, usa o nome do serviço
+        return "http://host.docker.internal:8081/inpaint"  # dentro do Docker, usa o nome do serviço
     return "http://localhost:8081/inpaint"  # fora do Docker (execução local)
 
 def gerar_mascara_bordas_pretas(image_np, tolerancia=10):
