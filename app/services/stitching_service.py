@@ -90,12 +90,20 @@ def call_lama_cleaner(image_np):
         "controlnet_method": ""
     }
 
-    response = requests.post("http://localhost:8081/inpaint", files=files, data=data)
+    response = requests.post(get_lama_url(), files=files, data=data)
     if response.status_code != 200:
         raise Exception(f"Erro ao chamar lama-cleaner: {response.text}")
 
     nparr = np.frombuffer(response.content, np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+def is_inside_docker():
+    return os.path.exists("/.dockerenv")
+
+def get_lama_url():
+    if is_inside_docker():
+        return "http://lama:8081/inpaint"  # dentro do Docker, usa o nome do serviço
+    return "http://localhost:8081/inpaint"  # fora do Docker (execução local)
 
 def gerar_mascara_bordas_pretas(image_np, tolerancia=10):
     """Cria uma máscara onde as bordas pretas da imagem serão 255 (preencher), o restante 0"""
