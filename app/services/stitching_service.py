@@ -3,8 +3,11 @@ import zipfile
 import os
 import cv2
 from PIL import Image
+import numpy as np
 from pillow_heif import register_heif_opener
 import zipfile
+
+import requests
 
 register_heif_opener()
 cv2.ocl.setUseOpenCL(False)     # Desativa uso de OpenCL (GPU)
@@ -42,8 +45,7 @@ def call_lama_cleaner(image_np):
     _, img_encoded = cv2.imencode(".jpg", image_np)
     image_bytes = img_encoded.tobytes()
 
-    # Criar uma máscara completamente branca (255) para preencher tudo
-    mask = np.ones_like(image_np[:, :, 0], dtype=np.uint8) * 255
+    mask = gerar_mascara_bordas_pretas(image_np)
     _, mask_encoded = cv2.imencode(".jpg", mask)
 
     files = {
@@ -54,12 +56,12 @@ def call_lama_cleaner(image_np):
     data = {
         "ldmSteps": "20",
         "ldmSampler": "plms",
-        "hdStrategy": "Crop",
+        "hdStrategy": "Original",
         "zitsWireframe": "false",
         "hdStrategyCropMargin": "32",
         "hdStrategyCropTrigerSize": "800",
         "hdStrategyResizeLimit": "2048",
-        "prompt": "",
+        "prompt": "preencher suavemente as bordas pretas com o mesmo estilo da imagem",
         "negativePrompt": "",
         "useCroper": "false",
         "croperX": "0",
@@ -68,7 +70,7 @@ def call_lama_cleaner(image_np):
         "croperWidth": "0",
         "sdScale": "1.0",
         "sdMaskBlur": "4",
-        "sdStrength": "0.75",
+        "sdStrength": "1.0",
         "sdSteps": "20",
         "sdGuidanceScale": "7.5",
         "sdSampler": "ddim",
@@ -95,15 +97,11 @@ def call_lama_cleaner(image_np):
     nparr = np.frombuffer(response.content, np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-def crop_black_borders(img):
-    """Remove as bordas pretas do panorama usando threshold e bounding box."""
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        x, y, w, h = cv2.boundingRect(contours[0])
-        return img[y:y+h, x:x+w]
-    return img
+def gerar_mascara_bordas_pretas(image_np, tolerancia=10):
+    """Cria uma máscara onde as bordas pretas da imagem serão 255 (preencher), o restante 0"""
+    # Cria uma máscara onde os pixels pretos ou quase pretos (com tolerância) são marcados como 255
+    mask = cv2.inRange(image_np, (0, 0, 0), (tolerancia, tolerancia, tolerancia))
+    return mask
 
 def generate_panorama(image_paths, output_folder):
     pasta_convertidos = os.path.join(output_folder, 'convertidos')
@@ -139,6 +137,8 @@ def generate_panorama(image_paths, output_folder):
 
     stitcher = cv2.Stitcher_create()
     status, panorama = stitcher.stitch(imagens)
+    
+    panorama = call_lama_cleaner(panorama)
 
     if status == cv2.Stitcher_OK:
         resultado_path = os.path.join(output_folder, "panorama_resultado.jpg")
