@@ -20,6 +20,15 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 @app.post("/gerar_panorama/", summary="Gerar Panorama com OpenCV")
 def gerar_panorama_endpoint(files: List[UploadFile] = File(...)):
     imagens = []
+    
+     # Limpeza dos arquivos temporários
+    for f in os.listdir("temp_images"):
+        try:
+            file_path = os.path.join("temp_images", f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Erro ao remover arquivo temporário {f}: {str(e)}")
 
     for file in files:
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
