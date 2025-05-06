@@ -151,15 +151,6 @@ def generate_panorama(image_paths, output_folder):
     if status == cv2.Stitcher_OK:
         resultado_path = os.path.join(output_folder, "panorama_resultado.jpg")
         cv2.imwrite(resultado_path, panorama, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        
-        # Limpeza dos arquivos temporários
-        for f in os.listdir("temp_images"):
-            try:
-                file_path = os.path.join("temp_images", f)
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                print(f"Erro ao remover arquivo temporário {f}: {str(e)}")
         return resultado_path
     else:
         raise Exception(f"Erro ao criar panorama. Código: {status}")
