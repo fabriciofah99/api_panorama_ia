@@ -1,32 +1,33 @@
-# app/services/stitching_service.py
 import zipfile
 import os
 import cv2
-from PIL import Image
 import numpy as np
+from PIL import Image
 from pillow_heif import register_heif_opener
-import zipfile
-
 import requests
+import re
+
+from app.services.stitching_core import stitch_images
+from app.utils.image_processing import enhance_image
 
 register_heif_opener()
-cv2.ocl.setUseOpenCL(False)     # Desativa uso de OpenCL (GPU)
-cv2.setUseOptimized(True)       # Ativa otimizações padrão
+cv2.ocl.setUseOpenCL(False)
+cv2.setUseOptimized(True)
 
-MAX_WIDTH = 1920  # largura máxima para redimensionamento
+MAX_WIDTH = 1920
 MAX_HEIGHT = 1080
 
 def extract_images(zip_path, extract_folder):
-    """Extrai imagens de um ZIP e ordena numericamente"""
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_folder)
     return sorted([
-        os.path.join(extract_folder, f)
-        for f in os.listdir(extract_folder)
+        os.path.join(root, f)
+        for root, _, files in os.walk(extract_folder)
+        for f in files
         if f.lower().endswith(('jpg', 'jpeg', 'png', 'heic'))
     ])
 
-def redimensionar_imagem(imagem, max_largura, max_altura):
+def redimensionar_imagem(imagem, max_largura=MAX_WIDTH, max_altura=MAX_HEIGHT):
     altura, largura = imagem.shape[:2]
     if largura > max_largura or altura > max_altura:
         fator = min(max_largura / largura, max_altura / altura)
@@ -35,21 +36,22 @@ def redimensionar_imagem(imagem, max_largura, max_altura):
         return cv2.resize(imagem, (nova_largura, nova_altura), interpolation=cv2.INTER_AREA)
     return imagem
 
-def call_lama_cleaner(image_np):
-    """
-    Envia imagem para o lama-cleaner usando os campos esperados pela rota /inpaint:
-    - image: imagem original
-    - mask: mesma imagem como "máscara completa" (branco = 255)
-    - outros parâmetros obrigatórios do form, mesmo que vazios/default
-    """
-    _, img_encoded = cv2.imencode(".jpg", image_np)
-    image_bytes = img_encoded.tobytes()
+def gerar_mascara_bordas_pretas(image_np, tolerancia=10):
+    return cv2.inRange(image_np, (0, 0, 0), (tolerancia, tolerancia, tolerancia))
 
+def is_inside_docker():
+    return os.path.exists("/.dockerenv")
+
+def get_lama_url():
+    return "http://lama:8081/inpaint" if is_inside_docker() else "http://localhost:8081/inpaint"
+
+def call_lama_cleaner(image_np):
+    _, img_encoded = cv2.imencode(".jpg", image_np)
     mask = gerar_mascara_bordas_pretas(image_np)
     _, mask_encoded = cv2.imencode(".jpg", mask)
 
     files = {
-        "image": ("image.jpg", image_bytes, "image/jpeg"),
+        "image": ("image.jpg", img_encoded.tobytes(), "image/jpeg"),
         "mask": ("mask.jpg", mask_encoded.tobytes(), "image/jpeg")
     }
 
@@ -94,63 +96,65 @@ def call_lama_cleaner(image_np):
     if response.status_code != 200:
         raise Exception(f"Erro ao chamar lama-cleaner: {response.text}")
 
-    nparr = np.frombuffer(response.content, np.uint8)
-    return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    return cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_COLOR)
 
-def is_inside_docker():
-    return os.path.exists("/.dockerenv")
+def ajustar_proporcao_equiretangular(imagem):
+    largura = imagem.shape[1]
+    nova_altura = largura // 2
+    return cv2.resize(imagem, (largura, nova_altura), interpolation=cv2.INTER_AREA)
 
-def get_lama_url():
-    if is_inside_docker():
-        return "http://lama:8081/inpaint"  # dentro do Docker, usa o nome do serviço
-    return "http://localhost:8081/inpaint"  # fora do Docker (execução local)
+def limitar_resolucao(imagem, max_largura=23000, max_altura=11500):
+    altura, largura = imagem.shape[:2]
+    if largura > max_largura or altura > max_altura:
+        escala = min(max_largura / largura, max_altura / altura)
+        nova_largura = int(largura * escala)
+        nova_altura = int(altura * escala)
+        return cv2.resize(imagem, (nova_largura, nova_altura), interpolation=cv2.INTER_AREA)
+    return imagem
 
-def gerar_mascara_bordas_pretas(image_np, tolerancia=10):
-    """Cria uma máscara onde as bordas pretas da imagem serão 255 (preencher), o restante 0"""
-    # Cria uma máscara onde os pixels pretos ou quase pretos (com tolerância) são marcados como 255
-    mask = cv2.inRange(image_np, (0, 0, 0), (tolerancia, tolerancia, tolerancia))
-    return mask
+def gerar_panorama_por_frames(image_paths, output_folder):
+    grupos = {}
+    for path in image_paths:
+        filename = os.path.basename(path).lower()
+        match = re.match(r"(chao|meio|ceu)[^0-9]*([0-9]+)", filename)
+        if match:
+            faixa, indice = match.groups()
+            if indice not in grupos:
+                grupos[indice] = {}
+            grupos[indice][faixa] = path
 
-def generate_panorama(image_paths, output_folder):
-    pasta_convertidos = os.path.join(output_folder, 'convertidos')
-    os.makedirs(pasta_convertidos, exist_ok=True)
-    caminhos_imagens = []
+    blocos = []
+    for indice in sorted(grupos.keys()):
+        bloco = grupos[indice]
+        if not all(k in bloco for k in ['chao', 'meio', 'ceu']):
+            continue
 
-    for caminho_arquivo in sorted(image_paths):
-        nome_arquivo = os.path.basename(caminho_arquivo)
-        nome_base, extensao = os.path.splitext(nome_arquivo)
-        extensao = extensao.lower()
+        imgs = [cv2.imread(bloco['chao']),
+                cv2.imread(bloco['meio']),
+                cv2.imread(bloco['ceu'])]
 
-        if extensao == '.heic':
-            try:
-                imagem = Image.open(caminho_arquivo)
-                novo_caminho = os.path.join(pasta_convertidos, f"{nome_base}.jpg")
-                imagem.save(novo_caminho, "JPEG")
-                caminhos_imagens.append(novo_caminho)
-            except Exception as e:
-                print(f"Erro ao converter {nome_arquivo}: {e}")
-        elif extensao in ['.jpg', '.jpeg', '.png']:
-            caminhos_imagens.append(caminho_arquivo)
+        if any(i is None for i in imgs):
+            continue
 
-    imagens = []
-    for caminho in caminhos_imagens:
-        if os.path.exists(caminho):
-            img = cv2.imread(caminho)
-            if img is not None:
-                img = redimensionar_imagem(img, MAX_WIDTH, MAX_HEIGHT)
-                imagens.append(img)
+        largura_min = min(i.shape[1] for i in imgs)
+        imgs_redimensionadas = [
+            cv2.resize(i, (largura_min, int(i.shape[0] * largura_min / i.shape[1])))
+            for i in imgs
+        ]
 
-    if len(imagens) < 2:
-        raise Exception("Imagens insuficientes para criar panorama.")
+        bloco_vertical = cv2.vconcat(imgs_redimensionadas)
+        blocos.append(bloco_vertical)
 
-    stitcher = cv2.Stitcher_create()
-    status, panorama = stitcher.stitch(imagens)
-    
-    panorama = call_lama_cleaner(panorama)
+    if len(blocos) < 2:
+        raise Exception("Blocos verticais insuficientes para gerar panorama.")
 
-    if status == cv2.Stitcher_OK:
-        resultado_path = os.path.join(output_folder, "panorama_resultado.jpg")
-        cv2.imwrite(resultado_path, panorama, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        return resultado_path
-    else:
-        raise Exception(f"Erro ao criar panorama. Código: {status}")
+    # 🔧 Código corrigido aqui:
+    panorama = stitch_images(blocos)  # costura via stitching_core
+    panorama = enhance_image(panorama)  # realce antes do lama-cleaner
+    panorama = call_lama_cleaner(panorama)  # mantém lama-cleaner normal
+    panorama = ajustar_proporcao_equiretangular(panorama)
+    panorama = limitar_resolucao(panorama)
+
+    resultado_path = os.path.join(output_folder, "panorama_360_bloco.jpg")
+    cv2.imwrite(resultado_path, panorama, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    return resultado_path
